@@ -93,6 +93,44 @@ QUALITÉ DU CONTENU:
     }
 
 
+def get_delete_pdf_tool_definition(available_pdfs: list = None) -> dict:
+    """Get the delete_pdf tool definition."""
+    if available_pdfs:
+        pdf_list = "\n".join([f"- {p['title']}" for p in available_pdfs])
+        desc = f"""Supprime un document PDF de la bibliothèque.
+
+Documents disponibles:
+{pdf_list}
+
+Utilise cette fonction quand l'utilisateur demande de supprimer un PDF.
+Cherche le PDF par son titre (ou un mot-clé du titre).
+Demande TOUJOURS confirmation avant de supprimer."""
+    else:
+        desc = "Supprime un document PDF de la bibliothèque par titre."
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "delete_pdf",
+            "description": desc,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title_query": {
+                        "type": "string",
+                        "description": "Titre ou mot-clé du PDF à supprimer"
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": "True si l'utilisateur a explicitement confirmé la suppression, False sinon"
+                    }
+                },
+                "required": ["title_query", "confirmed"]
+            }
+        }
+    }
+
+
 def get_pdf_system_context(user_memories: str = "", study_plans: str = "") -> str:
     """Build a system context for PDF generation based on user info."""
     context = """
@@ -487,3 +525,37 @@ class PDFManager:
             if tq in pdf['title'].lower():
                 return pdf
         return None
+
+    def delete_pdf(self, title_query: str) -> dict:
+        """Delete a PDF from storage and database by title."""
+        if not self.enabled:
+            return {"error": "Supabase non configuré"}
+
+        pdf = self.get_pdf_by_title(title_query)
+        if not pdf:
+            return {"error": f"Aucun PDF trouvé pour '{title_query}'"}
+
+        title = pdf['title']
+        file_path = pdf['file_path']
+        errors = []
+
+        # Delete from storage
+        try:
+            self.client_admin.storage.from_(self.bucket_name).remove([file_path])
+            logger.info(f"Deleted from storage: {file_path}")
+        except Exception as e:
+            logger.error(f"Error deleting from storage: {e}")
+            errors.append(f"storage: {e}")
+
+        # Delete from pdfs table
+        try:
+            self.client_admin.table("pdfs").delete().eq("file_path", file_path).execute()
+            logger.info(f"Deleted from pdfs table: {file_path}")
+        except Exception as e:
+            logger.error(f"Error deleting from table: {e}")
+            errors.append(f"table: {e}")
+
+        if errors:
+            return {"success": True, "title": title, "message": f"PDF '{title}' supprimé (avec avertissements: {', '.join(errors)})"}
+
+        return {"success": True, "title": title, "message": f"PDF '{title}' supprimé de la bibliothèque"}

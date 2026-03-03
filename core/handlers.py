@@ -18,7 +18,7 @@ from core.ollama_client import OllamaClient, OllamaError
 from core.conversation import ConversationManager
 from core.rate_limiter import RateLimiter
 from core.memory import MemoryManager
-from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_pdf_system_context
+from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_delete_pdf_tool_definition, get_pdf_system_context
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +392,7 @@ class BotHandlers:
             if self.pdf_manager.enabled:
                 tools.append(get_pdf_tool_definition(available_pdfs))
                 tools.append(get_create_pdf_tool_definition())
+                tools.append(get_delete_pdf_tool_definition(available_pdfs))
                 
                 # Inject PDF context with user profile for personalized content
                 pdf_context = get_pdf_system_context(user_memories, user_plans)
@@ -467,6 +468,26 @@ class BotHandlers:
                                 await message.reply_text(f"❌ {result['error']}")
                             else:
                                 func_response = "Erreur inconnue lors de la création du PDF"
+                    
+                    elif func_name == "delete_pdf":
+                        title_query = args.get("title_query", "")
+                        confirmed = args.get("confirmed", False)
+                        
+                        if not confirmed:
+                            # AI should ask for confirmation first
+                            pdf = self.pdf_manager.get_pdf_by_title(title_query)
+                            if pdf:
+                                func_response = f"PDF trouvé : '{pdf['title']}'. Demande confirmation à l'utilisateur avant de supprimer."
+                            else:
+                                func_response = f"Aucun PDF trouvé pour '{title_query}'"
+                        else:
+                            result = self.pdf_manager.delete_pdf(title_query)
+                            if result and result.get("success"):
+                                func_response = result["message"]
+                            elif result and result.get("error"):
+                                func_response = f"Erreur: {result['error']}"
+                            else:
+                                func_response = "Erreur lors de la suppression"
                     else:
                         func_response = "Fonction inconnue"
                     
