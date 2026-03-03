@@ -1,0 +1,5 @@
+python-telegram-bot[webhooks]==21.*
+httpx==0.27.*
+python-dotenv==1.*
+supabase==2.*
+fpdf2==2.7.*
