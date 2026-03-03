@@ -18,7 +18,7 @@ from core.ollama_client import OllamaClient, OllamaError
 from core.conversation import ConversationManager
 from core.rate_limiter import RateLimiter
 from core.memory import MemoryManager
-from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition
+from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_pdf_system_context
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +392,10 @@ class BotHandlers:
             if self.pdf_manager.enabled:
                 tools.append(get_pdf_tool_definition(available_pdfs))
                 tools.append(get_create_pdf_tool_definition())
+                
+                # Inject PDF context with user profile for personalized content
+                pdf_context = get_pdf_system_context(user_memories, user_plans)
+                messages = [messages[0]] + [{"role": "system", "content": pdf_context}] + messages[1:]
             
             response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
             
