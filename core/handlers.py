@@ -19,6 +19,7 @@ from core.conversation import ConversationManager
 from core.rate_limiter import RateLimiter
 from core.memory import MemoryManager
 from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_delete_pdf_tool_definition, get_pdf_system_context
+from core.homework_manager import HomeworkManager, get_homework_tools
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ class BotHandlers:
             period_seconds=config.rate_limit_period,
         )
         self.pdf_manager = PDFManager(
+            supabase_url=config.supabase_url,
+            supabase_key=config.supabase_key,
+            service_key=config.supabase_service_key or None
+        )
+        self.homework = HomeworkManager(
             supabase_url=config.supabase_url,
             supabase_key=config.supabase_key,
             service_key=config.supabase_service_key or None
@@ -398,6 +404,10 @@ class BotHandlers:
                 pdf_context = get_pdf_system_context(user_memories, user_plans)
                 messages = [messages[0]] + [{"role": "system", "content": pdf_context}] + messages[1:]
             
+            # Homework tools
+            if self.homework.enabled:
+                tools.extend(get_homework_tools())
+            
             response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
             
             ai_text = response_dict.get("content", "")
@@ -488,6 +498,35 @@ class BotHandlers:
                                 func_response = f"Erreur: {result['error']}"
                             else:
                                 func_response = "Erreur lors de la suppression"
+                    
+                    # ===== HOMEWORK TOOLS =====
+                    elif func_name == "add_homework":
+                        result = self.homework.add(
+                            user_id=user.id,
+                            subject=args.get("subject", ""),
+                            description=args.get("description", ""),
+                            due_date=args.get("due_date", "")
+                        )
+                        func_response = result.get("message") or result.get("error", "Erreur")
+                    
+                    elif func_name == "list_homework":
+                        result = self.homework.list_all(user_id=user.id)
+                        func_response = result.get("message") or result.get("error", "Erreur")
+                    
+                    elif func_name == "mark_homework_done":
+                        result = self.homework.mark_done(
+                            homework_id=args.get("homework_id", 0),
+                            user_id=user.id
+                        )
+                        func_response = result.get("message") or result.get("error", "Erreur")
+                    
+                    elif func_name == "delete_homework":
+                        result = self.homework.delete(
+                            homework_id=args.get("homework_id", 0),
+                            user_id=user.id
+                        )
+                        func_response = result.get("message") or result.get("error", "Erreur")
+
                     else:
                         func_response = "Fonction inconnue"
                     
