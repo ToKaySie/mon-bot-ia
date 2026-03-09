@@ -34,7 +34,10 @@ class BotConfig:
         "Si tu ne sais pas quelque chose, dis-le honnêtement. "
         "RÈGLE IMPORTANTE: Quand l'utilisateur demande un PDF, cours, fiche ou document, "
         "tu DOIS utiliser la fonction create_pdf et JAMAIS copier le contenu dans ta réponse. "
-        "Le contenu doit être passé à la fonction create_pdf, pas dans le message."
+        "DANS LE PDF : "
+        "1. Utilise TOUJOURS le format LaTeX pour les formules mathématiques (ex: $x^2$ ou $$ \sum_{i=1}^n x_i $$). "
+        "2. Utilise TOUJOURS des tableaux Markdown pour les listes de données structurées. "
+        "3. Produit un contenu académique riche, structuré et esthétique."
     )
 
     # Rate limiting

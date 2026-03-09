@@ -230,13 +230,59 @@ class PDFManager:
         pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
         pdf.ln(4)
 
+    def _render_formula(self, pdf: FPDF, formula: str, is_block: bool = True):
+        """Render a LaTeX formula using CodeCogs API and insert as image."""
+        import urllib.parse
+        import urllib.request
+        import io
+        
+        # Cleanup formula
+        formula = formula.strip()
+        if formula.startswith('$$') and formula.endswith('$$'):
+            formula = formula[2:-2].strip()
+        elif formula.startswith('$') and formula.endswith('$'):
+            formula = formula[1:-1].strip()
+            
+        try:
+            # CodeCogs URL for PNG rendering (300 DPI for high quality)
+            # Using \bg_white to ensure visibility on white PDF
+            encoded_formula = urllib.parse.quote(r"\bg_white \huge " + formula)
+            url = f"https://latex.codecogs.com/png.latex?{encoded_formula}"
+            
+            with urllib.request.urlopen(url, timeout=5) as response:
+                img_data = response.read()
+                img_file = io.BytesIO(img_data)
+                
+                # If block formula, center it
+                if is_block:
+                    pdf.ln(2)
+                    # We don't know the image size yet, fpdf2 handles it
+                    # To center, we calculate width after placing or use a fixed width approach
+                    # Simpler: just use multi_cell alignment or manual x calculation
+                    curr_y = pdf.get_y()
+                    # Check if we need a new page
+                    if curr_y > 250: pdf.add_page()
+                    
+                    # Try to center the image (rough estimation)
+                    pdf.image(img_file, x=pdf.w/2 - 20, w=40) 
+                    pdf.ln(2)
+                else:
+                    # Inline formula - more complex with fpdf2, we'll just treat them as small blocks for now
+                    pdf.image(img_file, h=pdf.font_size * 0.8)
+        except Exception as e:
+            logger.warning(f"Formula rendering failed: {e}")
+            pdf.set_font("Courier", "I", 10)
+            pdf.cell(0, 10, f" [Eq: {formula}] ", ln=True)
+
     def _write_rich_line(self, pdf: FPDF, text: str, font_family: str = "Serif", 
                           font_size: int = 10, max_width: float = None):
-        """Write a single line/paragraph with **bold** and *italic* inline formatting."""
+        """Write a single line/paragraph with **bold**, *italic* and $inline math$."""
         if max_width is None:
             max_width = pdf.w - pdf.l_margin - pdf.r_margin
         
-        parts = re.split(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)', text)
+        # Detect inline math $...$
+        # Regex to split by bold, italic AND inline math
+        parts = re.split(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|\$.*?\$)', text)
         
         x_start = pdf.get_x()
         current_x = x_start
@@ -255,6 +301,11 @@ class PDFManager:
             elif part.startswith('*') and part.endswith('*'):
                 pdf.set_font(font_family, "I", font_size)
                 part = part[1:-1]
+            elif part.startswith('$') and part.endswith('$'):
+                # Inline Math - Render as image if possible, or just Courier
+                self._render_formula(pdf, part, is_block=False)
+                current_x = pdf.get_x()
+                continue
             else:
                 pdf.set_font(font_family, "", font_size)
             
@@ -278,7 +329,7 @@ class PDFManager:
         pdf.set_font(font_family, "", font_size)
 
     def _markdown_to_pdf(self, text: str, title: str) -> bytes | None:
-        """Convert Markdown text to a clean academic-style PDF."""
+        """Convert Markdown text to a clean academic-style PDF with Math and Tables."""
         try:
             pdf = AcademicPDF()
             pdf.alias_nb_pages()
@@ -312,6 +363,57 @@ class PDFManager:
                     i += 1
                     continue
                 
+                # Block Formula: $$ ... $$
+                if stripped.startswith('$$') and stripped.endswith('$$'):
+                    self._render_formula(pdf, stripped, is_block=True)
+                    i += 1
+                    continue
+                
+                # Multi-line Block Formula
+                if stripped.startswith('$$') and not stripped.endswith('$$'):
+                    formula_lines = [stripped]
+                    i += 1
+                    while i < len(lines) and not lines[i].strip().endswith('$$'):
+                        formula_lines.append(lines[i].strip())
+                        i += 1
+                    if i < len(lines):
+                        formula_lines.append(lines[i].strip())
+                        i += 1
+                    self._render_formula(pdf, "\n".join(formula_lines), is_block=True)
+                    continue
+
+                # Tables: | col | col |
+                if stripped.startswith('|') and i + 1 < len(lines) and '|---' in lines[i+1]:
+                    # Table detection
+                    table_data = []
+                    # Header
+                    headers = [c.strip() for c in stripped.split('|') if c.strip()]
+                    table_data.append(headers)
+                    # Skip separator line
+                    i += 2
+                    # Rows
+                    while i < len(lines) and lines[i].strip().startswith('|'):
+                        row = [c.strip() for c in lines[i].split('|') if c.strip()]
+                        if row: table_data.append(row)
+                        i += 1
+                    
+                    # Render Table using fpdf2 table()
+                    pdf.ln(4)
+                    with pdf.table(
+                        borders_layout="HORIZONTAL_LINES",
+                        cell_fill_color=245,
+                        cell_fill_mode="ROWS",
+                        line_height=pdf.font_size * 1.5,
+                        text_align="CENTER",
+                        width=content_width
+                    ) as t:
+                        for row_data in table_data:
+                            row = t.row()
+                            for datum in row_data:
+                                row.cell(datum)
+                    pdf.ln(4)
+                    continue
+
                 # Horizontal rule: ---
                 if stripped in ('---', '***', '___'):
                     pdf.ln(2)
@@ -320,13 +422,12 @@ class PDFManager:
                     i += 1
                     continue
                 
-                # H1: # Title (used as subtitle / section intro)
+                # H1: # Title
                 if stripped.startswith('# ') and not stripped.startswith('## '):
                     heading = stripped[2:].strip()
                     heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
                     
                     if not first_h1_done:
-                        # First H1 = subtitle with guillemets style
                         pdf.set_font("Sans", "I", 13)
                         pdf.set_text_color(*TEXT_COLOR)
                         pdf.multi_cell(content_width, 8, heading, align="L")
@@ -343,7 +444,7 @@ class PDFManager:
                     i += 1
                     continue
                 
-                # H2: ## SECTION TITLE (uppercase, with line underneath)
+                # H2: ## SECTION TITLE
                 if stripped.startswith('## ') and not stripped.startswith('### '):
                     heading = stripped[3:].strip()
                     heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
@@ -358,7 +459,7 @@ class PDFManager:
                     i += 1
                     continue
                 
-                # H3: ### Sub-title (bold, normal)
+                # H3: ### Sub-title
                 if stripped.startswith('### '):
                     heading = stripped[4:].strip()
                     heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
@@ -375,7 +476,6 @@ class PDFManager:
                 if stripped.startswith(('- ', '* ', '• ')):
                     pdf.set_text_color(*TEXT_COLOR)
                     item_text = stripped[2:].strip()
-                    
                     bullet_x = pdf.l_margin + 5
                     text_x = bullet_x + 6
                     item_width = content_width - 11
@@ -395,7 +495,6 @@ class PDFManager:
                     match = re.match(r'^(\d+[\.\)] )(.*)', stripped)
                     number = match.group(1)
                     item_text = match.group(2).strip()
-                    
                     num_x = pdf.l_margin + 5
                     text_x = num_x + 8
                     item_width = content_width - 13
