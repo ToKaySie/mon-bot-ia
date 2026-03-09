@@ -29,7 +29,7 @@ def get_create_pdf_tool_definition() -> dict:
         "type": "function",
         "function": {
             "name": "create_pdf",
-            "description": "Crée un PDF structuré. Tout le contenu doit être dans text_content.",
+            "description": "Crée un cours ou une fiche PDF TRÈS DÉTAILLÉ. Tu dois TOUJOURS structurer ton contenu avec : Introduction (Niveau visé), Objectifs, Développement (Chapitres/Sous-chapitres), Exemples d'application, et Synthèse. TOUT le contenu complet doit être dans text_content.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -59,8 +59,19 @@ def get_delete_pdf_tool_definition(available_pdfs: list = None) -> dict:
     }
 
 def get_pdf_system_context(user_memories: str = "", study_plans: str = "") -> str:
-    context = "Tu es un expert. Utilise create_pdf pour les documents. Utilise $...$ pour les maths."
-    if user_memories: context += f"\nPROFIL:\n{user_memories}"
+    context = """
+INSTRUCTIONS POUR LA CRÉATION DE PDF (PÉDAGOGIE EXPERTE) :
+Tu es un professeur de haut niveau. Quand on te demande un cours ou une fiche (utilise TOUJOURS create_pdf) :
+1. Détermine le NIVEAU de l'utilisateur (Collège, Lycée, Fac...) d'après sa question ou sa mémoire.
+2. Définis les OBJECTIFS pédagogiques du document.
+3. Rédige un contenu EXHAUSTIF, structuré en grandes parties (##) et sous-parties (###).
+4. Ne fais jamais de résumé rapide, développe chaque concept.
+5. Inclus des EXEMPLES et EXERCICES d'application corrigés.
+6. Utilise obligatoirement le format LaTeX ($...$ ou $$...$$) pour TOUTES les formules mathématiques.
+7. Termine par une synthèse des points clés.
+"""
+    if user_memories: context += f"\nPROFIL DE L'ÉTUDIANT (Adapte la difficulté à ce profil) :\n{user_memories}"
+    if study_plans: context += f"\nPLANNINGS DE RÉVISION :\n{study_plans}"
     return context
 
 class AcademicPDF(FPDF):
