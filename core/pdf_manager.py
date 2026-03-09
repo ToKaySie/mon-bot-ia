@@ -115,6 +115,7 @@ class PDFManager:
                 else:
                     pdf.image(img_file, h=pdf.font_size * 0.8)
         except Exception as e:
+            logger.warning(f"Formula error: {e}")
             pdf.write(pdf.font_size, f" [{formula}] ")
 
     def _write_rich_line(self, pdf: FPDF, text: str, font_size: int = 10):
@@ -132,25 +133,85 @@ class PDFManager:
             pdf.write(font_size * 0.7, part)
         pdf.ln(font_size * 0.8)
 
+    def _draw_hr(self, pdf: FPDF, thickness: float = 0.3):
+        pdf.set_draw_color(60, 60, 60)
+        pdf.set_line_width(thickness)
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+        pdf.ln(4)
+
     def _markdown_to_pdf(self, text: str, title: str) -> bytes | None:
         try:
             pdf = AcademicPDF()
             pdf.alias_nb_pages()
             pdf.set_auto_page_break(True, 20)
             pdf.add_page()
+            content_width = pdf.w - pdf.l_margin - pdf.r_margin
+
+            # Titre principal centré
             pdf.set_font("Serif", "B", 22)
-            pdf.multi_cell(0, 12, title)
+            pdf.multi_cell(0, 12, title, align="C")
             pdf.ln(5)
-            for line in text.strip().split('\n'):
-                line = line.strip()
-                if not line: pdf.ln(2); continue
-                if line.startswith('$$'): self._render_formula(pdf, line, True); continue
+
+            lines = text.strip().split('\n')
+            i = 0
+            while i < len(lines):
+                line = lines[i].strip()
+                if not line: pdf.ln(2); i += 1; continue
+                
+                # Formules blocs
+                if line.startswith('$$'): 
+                    self._render_formula(pdf, line, True); i += 1; continue
+                
+                # Tableaux Markdown
+                if line.startswith('|') and i+1 < len(lines) and '|---' in lines[i+1]:
+                    table_data = []
+                    headers = [c.strip() for c in line.split('|') if c.strip()]
+                    table_data.append(headers)
+                    i += 2
+                    while i < len(lines) and lines[i].strip().startswith('|'):
+                        row = [c.strip() for c in lines[i].split('|') if c.strip()]
+                        if row: table_data.append(row)
+                        i += 1
+                    pdf.ln(2)
+                    pdf.set_font("Serif", "", 9)
+                    with pdf.table(borders_layout="HORIZONTAL_LINES", cell_fill_color=245, cell_fill_mode="ROWS", line_height=7, width=content_width, text_align="CENTER") as t:
+                        for row_data in table_data:
+                            r = t.row()
+                            for datum in row_data: r.cell(datum)
+                    pdf.ln(4); continue
+
+                # Séparateurs
+                if line in ('---', '***', '___'):
+                    pdf.ln(2); self._draw_hr(pdf, 0.3); pdf.ln(2); i += 1; continue
+
+                # Titres de sections
                 if line.startswith('# '):
-                    pdf.set_font("Sans", "B", 16); pdf.multi_cell(0, 10, line[2:]); pdf.ln(2)
+                    pdf.set_font("Sans", "B", 16); pdf.multi_cell(0, 10, line[2:]); self._draw_hr(pdf, 0.5); pdf.ln(2)
                 elif line.startswith('## '):
-                    pdf.set_font("Sans", "B", 14); pdf.multi_cell(0, 9, line[3:]); pdf.ln(2)
+                    pdf.set_font("Sans", "B", 14); pdf.multi_cell(0, 9, line[3:]); pdf.ln(1)
+                elif line.startswith('### '):
+                    pdf.set_font("Sans", "B", 12); pdf.multi_cell(0, 8, line[4:]); pdf.ln(1)
+                
+                # Listes à puces
+                elif line.startswith(('- ', '* ', '• ')):
+                    pdf.set_x(pdf.l_margin + 5)
+                    pdf.set_font("Serif", "", 10)
+                    pdf.cell(5, 7, "•")
+                    pdf.set_x(pdf.l_margin + 10)
+                    self._write_rich_line(pdf, line[2:], 10)
+                # Listes numérotées
+                elif re.match(r'^\d+[\.\)] ', line):
+                    m = re.match(r'^(\d+[\.\)] )(.*)', line)
+                    pdf.set_x(pdf.l_margin + 5)
+                    pdf.set_font("Serif", "B", 10)
+                    pdf.cell(8, 7, m.group(1))
+                    pdf.set_x(pdf.l_margin + 13)
+                    self._write_rich_line(pdf, m.group(2).strip(), 10)
+                
+                # Texte normal
                 else:
                     self._write_rich_line(pdf, line, 10)
+                i += 1
             return bytes(pdf.output())
         except Exception as e:
             logger.error(f"PDF CRASH: {e}", exc_info=True); return None
@@ -161,7 +222,6 @@ class PDFManager:
         if not pdf_bytes: return {"error": "Échec generation PDF"}
         try:
             file_path = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{title[:20].replace(' ','_')}.pdf"
-            # FIX: correct argument order path, file
             self.client_admin.storage.from_(self.bucket_name).upload(path=file_path, file=pdf_bytes, file_options={"content-type": "application/pdf"})
             url = f"{self.supabase_url}/storage/v1/object/public/{self.bucket_name}/{file_path}"
             return {"success": True, "title": title, "public_url": url, "pdf_bytes": pdf_bytes}
