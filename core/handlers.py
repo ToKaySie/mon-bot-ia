@@ -422,6 +422,7 @@ class BotHandlers:
             user_plans = self.memory.get_all_study_plans(user.id)
             messages = self.conversations.get_messages(user.id, user_memory=user_memories, study_plans=user_plans)
             
+            # Call Ollama
             response_dict = await self.ollama.chat(messages)
             ai_text = response_dict.get("content", "Désolé, je n'ai pas pu analyser cette image.")
             
