@@ -72,6 +72,23 @@ class CourseManager:
             logger.error(f"Error listing tags: {e}")
             return []
 
+    def list_tags_with_counts(self, user_id: int) -> dict:
+        """Lists all unique course tags for a user along with the count of materials for each tag."""
+        if not self.enabled:
+            return {}
+            
+        try:
+            response = self.client.table("course_materials").select("tag").eq("user_id", user_id).execute()
+            tag_counts = {}
+            for item in response.data:
+                tag = item["tag"]
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            return tag_counts
+            
+        except Exception as e:
+            logger.error(f"Error listing tag counts: {e}")
+            return {}
+
 def get_course_tool_definition(available_tags: list = None) -> dict:
     """Tool definition for the AI to fetch course content by tag."""
     

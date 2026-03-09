@@ -82,6 +82,7 @@ def main():
     app.add_handler(CommandHandler("stats", handlers.stats_command))
     app.add_handler(CommandHandler("dbcheck", handlers.dbcheck_command))
     app.add_handler(CommandHandler("pdf", handlers.pdf_command))
+    app.add_handler(CommandHandler("cours", handlers.cours_command))
 
     # Register message handler
     app.add_handler(MessageHandler(filters.PHOTO, handlers.handle_photo))

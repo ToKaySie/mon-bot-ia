@@ -250,6 +250,44 @@ class BotHandlers:
             
             await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
 
+    async def cours_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /cours command - manage course materials."""
+        user = update.effective_user
+        if not self._is_user_allowed(user.id):
+            return
+
+        if not self.courses.enabled:
+            await update.message.reply_text("❌ Le gestionnaire de cours n'est pas configuré.")
+            return
+
+        args = context.args
+        if not args or args[0].lower() != "list":
+            help_msg = (
+                "📚 **Gestion des Cours**\n\n"
+                "Pour lister vos cours sauvegardés :\n"
+                "`/cours list`\n\n"
+                "Pour ajouter un cours :\n"
+                "1. Envoyez une photo de votre cours\n"
+                "2. Mettez en légende : `/cours add <tag>`\n"
+                "   (ex: `/cours add maths`)"
+            )
+            await update.message.reply_text(help_msg, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        tag_counts = self.courses.list_tags_with_counts(user.id)
+        
+        if not tag_counts:
+            await update.message.reply_text("📭 Vous n'avez encore aucun cours sauvegardé.")
+            return
+            
+        msg = "📚 **Vos Cours Sauvegardés**\n\n"
+        for tag, count in sorted(tag_counts.items()):
+            file_word = "page" if count == 1 else "pages"
+            msg += f"• **{tag}** : {count} {file_word}\n"
+            
+        msg += "\n💡 *Demandez-moi de faire une fiche sur l'un de ces cours !*"
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
     async def dbcheck_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /dbcheck command - debug database connection."""
         user = update.effective_user

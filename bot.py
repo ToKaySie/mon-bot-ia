@@ -71,6 +71,7 @@ def main():
     app.add_handler(CommandHandler("model", handlers.model_command))
     app.add_handler(CommandHandler("stats", handlers.stats_command))
     app.add_handler(CommandHandler("pdf", handlers.pdf_command))
+    app.add_handler(CommandHandler("cours", handlers.cours_command))
 
     # Register message handler (for all text messages)
     app.add_handler(MessageHandler(filters.PHOTO, handlers.handle_photo))
