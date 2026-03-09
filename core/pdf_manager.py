@@ -296,7 +296,7 @@ class PDFManager:
                 if current_x + w > x_start + max_width and current_x > x_start:
                     if not dry_run:
                         pdf.ln(line_height)
-                        pdf.set_x(start_x := x_start) # Visual fix
+                        pdf.set_x(x_start)
                     current_x = x_start
                     total_height += line_height
                     w_str = word.lstrip()
@@ -471,112 +471,6 @@ class PDFManager:
             return bytes(pdf.output())
         except Exception as e:
             logger.error(f"PDF generation error: {e}", exc_info=True); return None
-                if stripped in ('---', '***', '___'):
-                    pdf.ln(2)
-                    self._draw_hr(pdf, 0.3)
-                    pdf.ln(1)
-                    i += 1
-                    continue
-                
-                # H1: # Title
-                if stripped.startswith('# ') and not stripped.startswith('## '):
-                    heading = stripped[2:].strip()
-                    heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
-                    
-                    if not first_h1_done:
-                        pdf.set_font("Sans", "I", 13)
-                        pdf.set_text_color(*TEXT_COLOR)
-                        pdf.multi_cell(content_width, 8, heading, align="L")
-                        pdf.ln(3)
-                        self._draw_hr(pdf, 0.5)
-                        pdf.ln(2)
-                        first_h1_done = True
-                    else:
-                        pdf.ln(4)
-                        pdf.set_font("Serif", "B", 16)
-                        pdf.set_text_color(*TEXT_COLOR)
-                        pdf.multi_cell(content_width, 9, heading, align="L")
-                        pdf.ln(2)
-                    i += 1
-                    continue
-                
-                # H2: ## SECTION TITLE
-                if stripped.startswith('## ') and not stripped.startswith('### '):
-                    heading = stripped[3:].strip()
-                    heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
-                    
-                    pdf.ln(6)
-                    pdf.set_font("Sans", "B", 13)
-                    pdf.set_text_color(*TEXT_COLOR)
-                    pdf.multi_cell(content_width, 8, heading, align="L")
-                    pdf.ln(1)
-                    self._draw_hr(pdf, 0.4)
-                    pdf.ln(2)
-                    i += 1
-                    continue
-                
-                # H3: ### Sub-title
-                if stripped.startswith('### '):
-                    heading = stripped[4:].strip()
-                    heading = re.sub(r'\*\*(.*?)\*\*', r'\1', heading)
-                    
-                    pdf.ln(4)
-                    pdf.set_font("Sans", "B", 11)
-                    pdf.set_text_color(*TEXT_COLOR)
-                    pdf.multi_cell(content_width, 7, heading, align="L")
-                    pdf.ln(2)
-                    i += 1
-                    continue
-                
-                # Bullet list
-                if stripped.startswith(('- ', '* ', '• ')):
-                    pdf.set_text_color(*TEXT_COLOR)
-                    item_text = stripped[2:].strip()
-                    bullet_x = pdf.l_margin + 5
-                    text_x = bullet_x + 6
-                    item_width = content_width - 11
-                    
-                    pdf.set_font("Serif", "", BODY_SIZE)
-                    pdf.set_x(bullet_x)
-                    pdf.cell(5, 5.5, "–")
-                    pdf.set_x(text_x)
-                    self._write_rich_line(pdf, item_text, "Serif", BODY_SIZE, item_width)
-                    pdf.ln(0.5)
-                    i += 1
-                    continue
-                
-                # Numbered list
-                if re.match(r'^\d+[\.\)] ', stripped):
-                    pdf.set_text_color(*TEXT_COLOR)
-                    match = re.match(r'^(\d+[\.\)] )(.*)', stripped)
-                    number = match.group(1)
-                    item_text = match.group(2).strip()
-                    num_x = pdf.l_margin + 5
-                    text_x = num_x + 8
-                    item_width = content_width - 13
-                    
-                    pdf.set_font("Serif", "B", BODY_SIZE)
-                    pdf.set_x(num_x)
-                    pdf.cell(8, 5.5, number)
-                    pdf.set_font("Serif", "", BODY_SIZE)
-                    pdf.set_x(text_x)
-                    self._write_rich_line(pdf, item_text, "Serif", BODY_SIZE, item_width)
-                    pdf.ln(0.5)
-                    i += 1
-                    continue
-                
-                # Regular paragraph
-                pdf.set_text_color(*TEXT_COLOR)
-                pdf.set_x(pdf.l_margin)
-                self._write_rich_line(pdf, stripped, "Serif", BODY_SIZE, content_width)
-                pdf.ln(1.5)
-                i += 1
-
-            return bytes(pdf.output())
-            
-        except Exception as e:
-            logger.error(f"PDF generation error: {e}", exc_info=True)
-            return None
 
     def create_pdf(self, title: str, latex_content: str = None, text_content: str = None) -> dict | None:
         """Create a PDF from text content and upload to Supabase storage + table."""

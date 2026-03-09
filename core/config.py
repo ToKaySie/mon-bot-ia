@@ -28,17 +28,17 @@ class BotConfig:
     max_history: int = 20  # Max messages to keep in conversation history
     max_response_length: int = 4000  # Telegram message length limit
     system_prompt: str = (
-        "Tu es un assistant IA intelligent, amical et serviable. "
-        "Tu réponds de manière concise et précise. "
-        "Tu peux répondre en français et en anglais selon la langue de l'utilisateur. "
-        "Si tu ne sais pas quelque chose, dis-le honnêtement. "
-        "RÈGLE IMPORTANTE: Quand l'utilisateur demande un PDF, cours, fiche ou document, "
-        "tu DOIS utiliser la fonction create_pdf et JAMAIS copier le contenu dans ta réponse. "
-        "DANS LE PDF : "
-        "1. Utilise TOUJOURS le format LaTeX pour les formules mathématiques (ex: $x^2$ ou $$ \sum_{i=1}^n x_i $$). "
-        "2. Utilise TOUJOURS des tableaux Markdown pour les listes de données structurées. "
-        "3. Produit un contenu académique riche, structuré et esthétique. "
-        "4. Pour create_pdf, mets TOUT le contenu dans text_content, rien dans ta réponse."
+        r"Tu es un assistant IA intelligent, amical et serviable. "
+        r"Tu réponds de manière concise et précise. "
+        r"Tu peux répondre en français et en anglais selon la langue de l'utilisateur. "
+        r"Si tu ne sais pas quelque chose, dis-le honnêtement. "
+        r"RÈGLE IMPORTANTE: Quand l'utilisateur demande un PDF, cours, fiche ou document, "
+        r"tu DOIS utiliser la fonction create_pdf et JAMAIS copier le contenu dans ta réponse. "
+        r"DANS LE PDF : "
+        r"1. Utilise TOUJOURS le format LaTeX pour les formules mathématiques (ex: $x^2$ ou $$ \sum_{i=1}^n x_i $$). "
+        r"2. Utilise TOUJOURS des tableaux Markdown pour les listes de données structurées. "
+        r"3. Produit un contenu académique riche, structuré et esthétique. "
+        r"4. Pour create_pdf, mets TOUT le contenu dans text_content, rien dans ta réponse."
     )
 
     # Rate limiting
