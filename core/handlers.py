@@ -20,6 +20,7 @@ from core.rate_limiter import RateLimiter
 from core.memory import MemoryManager
 from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_delete_pdf_tool_definition, get_pdf_system_context
 from core.homework_manager import HomeworkManager, get_homework_tools
+from core.course_manager import CourseManager, get_course_tool_definition
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ class BotHandlers:
             supabase_url=config.supabase_url,
             supabase_key=config.supabase_key,
             service_key=config.supabase_service_key or None
+        )
+        self.courses = CourseManager(
+            supabase_url=config.supabase_url,
+            supabase_key=config.supabase_key
         )
         self._start_time = time.time()
 
@@ -339,7 +344,7 @@ class BotHandlers:
         return True
 
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle incoming photos - process with AI Vision."""
+        """Handle incoming photos - process with AI Vision or save as course."""
         user = update.effective_user
         message = update.message
 
@@ -352,15 +357,16 @@ class BotHandlers:
             await message.reply_text(f"⚠️ Trop de messages ! Réessayez dans {int(reset_time)}s.")
             return
 
-        # Get the highest quality photo
         photo = message.photo[-1]
-        caption = message.caption or "Analyse cette image."
+        caption = message.caption or ""
+        
+        is_course_save = caption.lower().startswith("/cours add")
 
         logger.info(f"Photo from {user.id} with caption: {caption[:100]}...")
         await context.bot.send_chat_action(chat_id=message.chat_id, action=ChatAction.TYPING)
 
         try:
-            # Download photo to memory
+            # Download and convert photo
             photo_file = await context.bot.get_file(photo.file_id)
             import io
             import base64
@@ -368,30 +374,54 @@ class BotHandlers:
             photo_bytes = io.BytesIO()
             await photo_file.download_to_memory(photo_bytes)
             photo_bytes.seek(0)
-            
-            # Convert to base64
             base64_image = base64.b64encode(photo_bytes.read()).decode('utf-8')
             
-            # Prepare multi-modal content
+            # If the user wants to save this as a course material
+            if is_course_save:
+                # Extract tag
+                parts = caption.split()
+                if len(parts) < 3:
+                    await message.reply_text("❌ Veuillez préciser un tag. Exemple : `/cours add maths`", parse_mode=ParseMode.MARKDOWN)
+                    return
+                tag = parts[2].lower()
+                
+                await message.reply_text(f"⏳ Lecture de l'image pour le cours '{tag}' en cours...")
+                
+                # Use AI to read everything from the image
+                ocr_prompt = "Tu es un expert en retranscription. Lis TOUT le texte visible sur cette image de cours et retranscris-le fidèlement, en conservant la structure (titres, listes, formules mathématiques en LaTeX). Ne rajoute pas de commentaires, donne juste le texte."
+                content = [
+                    {"type": "text", "text": ocr_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+                
+                response_dict = await self.ollama.chat([{"role": "user", "content": content}])
+                extracted_text = response_dict.get("content", "").strip()
+                
+                if not extracted_text or extracted_text == "Désolé, je n'ai pas pu analyser cette image.":
+                    await message.reply_text("❌ Je n'ai pas réussi à lire le texte sur cette image.")
+                    return
+                
+                # Save to database
+                res = self.courses.add_course_material(user.id, tag, extracted_text)
+                if res.get("success"):
+                    await message.reply_text(res["message"])
+                else:
+                    await message.reply_text(res.get("error", "Erreur inconnue."))
+                return
+
+            # Normal AI Vision interaction (Not saving a course)
+            caption_text = caption or "Analyse cette image."
             content = [
-                {"type": "text", "text": caption},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}"
-                    }
-                }
+                {"type": "text", "text": caption_text},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
             ]
             
-            # Add to conversation history (we store the multi-modal content)
             self.conversations.add_user_message(user.id, content)
             
-            # Get full context
             user_memories = self.memory.get_all_memories(user.id)
             user_plans = self.memory.get_all_study_plans(user.id)
             messages = self.conversations.get_messages(user.id, user_memory=user_memories, study_plans=user_plans)
             
-            # Call Ollama
             response_dict = await self.ollama.chat(messages)
             ai_text = response_dict.get("content", "Désolé, je n'ai pas pu analyser cette image.")
             
@@ -472,6 +502,11 @@ class BotHandlers:
             if self.homework.enabled:
                 tools.extend(get_homework_tools())
             
+            # Course materials tool
+            if self.courses.enabled:
+                available_tags = self.courses.list_tags(user.id)
+                tools.append(get_course_tool_definition(available_tags))
+            
             response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
             
             ai_text = response_dict.get("content", "")
@@ -486,7 +521,12 @@ class BotHandlers:
                     args = json.loads(tool_call["function"]["arguments"])
                     func_response = ""
                     
-                    if func_name == "send_pdf":
+                    if func_name == "get_course_content":
+                        tag = args.get("tag", "")
+                        await message.reply_text(f"🔍 Récupération des notes du cours '{tag}'...")
+                        func_response = self.courses.get_course_content_by_tag(user.id, tag)
+                    
+                    elif func_name == "send_pdf":
                         query = args.get("query", "")
                         pdfs = self.pdf_manager.search_pdfs(query)
                         
