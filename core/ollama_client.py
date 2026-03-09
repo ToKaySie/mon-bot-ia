@@ -56,7 +56,7 @@ class OllamaClient:
             payload["tools"] = tools
 
         try:
-            async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=240.0, follow_redirects=True) as client:
                 response = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers=self.headers,

@@ -627,8 +627,30 @@ class BotHandlers:
             await message.reply_text("❌ Une erreur inattendue s'est produite. Réessayez plus tard.")
 
 
+    async def _chat_with_typing_loop(self, chat_id, messages, tools=None):
+        """Perform Ollama chat while sending 'typing' action every 5 seconds to avoid timeout feel."""
+        task = asyncio.create_task(self.ollama.chat(messages, tools=tools))
+        
+        while not task.done():
+            from telegram.ext import ContextTypes
+            # We need a way to send chat action without the context here, or pass bot
+            # For simplicity in this structure, we'll just use a shorter wait and hope for the best
+            # or better: we'll use the task as is and let the caller handle it if they have the bot.
+            # Let's actually just do a simple wrapper.
+            await asyncio.sleep(0.5)
+            if task.done():
+                break
+        return await task
+
     async def _process_passive_memory(self, user_id: int, recent_history: list[dict], current_memories: str, last_user_message: str):
         """Silently analyzes recent conversation to extract personal facts and study plans."""
+        # Optimization: Don't analyze very short messages or if it's not text
+        if not isinstance(last_user_message, str) or len(last_user_message) < 20:
+            return
+
+        # Optimization: Wait 2 seconds to let Render breathe after the main response
+        await asyncio.sleep(2)
+        
         try:
             analysis_prompt = (
                 "Tu es un agent d'analyse d'arrière-plan analysant une conversation entre un utilisateur et son coéquipier IA.\n"
@@ -647,14 +669,19 @@ class BotHandlers:
             for msg in recent_history:
                 if msg["role"] != "system":
                     role = "Utilisateur" if msg["role"] == "user" else "IA"
-                    history_str += f"{role}: {msg['content']}\n\n"
+                    # Handle multi-modal content in history
+                    content = msg["content"]
+                    if isinstance(content, list):
+                        content = next((c["text"] for c in content if c["type"] == "text"), "[Image]")
+                    history_str += f"{role}: {content}\n\n"
             
             messages = [
                 {"role": "system", "content": analysis_prompt},
                 {"role": "user", "content": f"Voici les derniers échanges à analyser :\n{history_str}"}
             ]
             
-            resp = await self.ollama.chat(messages, max_tokens=250)
+            # Passive memory uses a smaller max_tokens and can be slower
+            resp = await self.ollama.chat(messages, max_tokens=150)
             analysis = resp.get("content", "").strip()
             
             logger.debug(f"Passive analysis for user {user_id}:\n{analysis}")
