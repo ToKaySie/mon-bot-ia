@@ -17,7 +17,7 @@ class BotConfig:
     # Ollama Cloud API settings
     ollama_api_url: str = "https://ollama.com/v1"
     ollama_api_key: str = ""
-    ollama_model: str = "minimax-m2.5:cloud"
+    ollama_model: str = "qwen3.5:397b-cloud"
 
     # Supabase Database
     supabase_url: str = ""

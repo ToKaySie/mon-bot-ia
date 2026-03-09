@@ -84,6 +84,7 @@ def main():
     app.add_handler(CommandHandler("pdf", handlers.pdf_command))
 
     # Register message handler
+    app.add_handler(MessageHandler(filters.PHOTO, handlers.handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
 
     # Register error handler

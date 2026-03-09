@@ -71,8 +71,8 @@ class ConversationManager:
 
         return messages
 
-    def add_user_message(self, user_id: int, content: str) -> None:
-        """Add a user message to the conversation history."""
+    def add_user_message(self, user_id: int, content: str | list | dict) -> None:
+        """Add a user message to the conversation history (supports text and multi-modal)."""
         self._conversations[user_id].append({"role": "user", "content": content})
         self._last_activity[user_id] = time.time()
         self._trim_history(user_id)

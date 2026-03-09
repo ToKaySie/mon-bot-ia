@@ -338,6 +338,70 @@ class BotHandlers:
         self._pending_pdf_downloads[update.effective_user.id] = [p["id"] for p in pdfs[:5]]
         return True
 
+    async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle incoming photos - process with AI Vision."""
+        user = update.effective_user
+        message = update.message
+
+        if not self._is_user_allowed(user.id):
+            await message.reply_text("⛔ Vous n'êtes pas autorisé à utiliser ce bot.")
+            return
+
+        if not self.rate_limiter.is_allowed(user.id):
+            reset_time = self.rate_limiter.get_reset_time(user.id)
+            await message.reply_text(f"⚠️ Trop de messages ! Réessayez dans {int(reset_time)}s.")
+            return
+
+        # Get the highest quality photo
+        photo = message.photo[-1]
+        caption = message.caption or "Analyse cette image."
+
+        logger.info(f"Photo from {user.id} with caption: {caption[:100]}...")
+        await context.bot.send_chat_action(chat_id=message.chat_id, action=ChatAction.TYPING)
+
+        try:
+            # Download photo to memory
+            photo_file = await context.bot.get_file(photo.file_id)
+            import io
+            import base64
+            
+            photo_bytes = io.BytesIO()
+            await photo_file.download_to_memory(photo_bytes)
+            photo_bytes.seek(0)
+            
+            # Convert to base64
+            base64_image = base64.b64encode(photo_bytes.read()).decode('utf-8')
+            
+            # Prepare multi-modal content
+            content = [
+                {"type": "text", "text": caption},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}"
+                    }
+                }
+            ]
+            
+            # Add to conversation history (we store the multi-modal content)
+            self.conversations.add_user_message(user.id, content)
+            
+            # Get full context
+            user_memories = self.memory.get_all_memories(user.id)
+            user_plans = self.memory.get_all_study_plans(user.id)
+            messages = self.conversations.get_messages(user.id, user_memory=user_memories, study_plans=user_plans)
+            
+            # Call Ollama
+            response_dict = await self.ollama.chat(messages)
+            ai_text = response_dict.get("content", "Désolé, je n'ai pas pu analyser cette image.")
+            
+            self.conversations.add_assistant_message(user.id, ai_text)
+            await self._send_long_message(message, ai_text)
+            
+        except Exception as e:
+            logger.error(f"Error handling photo: {e}", exc_info=True)
+            await message.reply_text("❌ Une erreur s'est produite lors de l'analyse de l'image.")
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming text messages - main AI conversation handler."""
         user = update.effective_user
