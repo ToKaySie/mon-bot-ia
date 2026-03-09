@@ -66,7 +66,6 @@ def get_pdf_system_context(user_memories: str = "", study_plans: str = "") -> st
 class AcademicPDF(FPDF):
     def __init__(self):
         super().__init__()
-        # Register ALL variants to avoid crashes
         self.add_font("Serif", "", os.path.join(FONTS_DIR, "DejaVuSerif.ttf"), uni=True)
         self.add_font("Serif", "B", os.path.join(FONTS_DIR, "DejaVuSerif-Bold.ttf"), uni=True)
         self.add_font("Serif", "I", os.path.join(FONTS_DIR, "DejaVuSerif-Italic.ttf"), uni=True)
@@ -105,7 +104,6 @@ class PDFManager:
                 else:
                     pdf.image(img_file, h=pdf.font_size * 0.8)
         except Exception as e:
-            logger.warning(f"Formula error: {e}")
             pdf.write(pdf.font_size, f" [{formula}] ")
 
     def _write_rich_line(self, pdf: FPDF, text: str, font_size: int = 10):
@@ -129,11 +127,9 @@ class PDFManager:
             pdf.alias_nb_pages()
             pdf.set_auto_page_break(True, 20)
             pdf.add_page()
-            
             pdf.set_font("Serif", "B", 22)
             pdf.multi_cell(0, 12, title)
             pdf.ln(5)
-
             for line in text.strip().split('\n'):
                 line = line.strip()
                 if not line: pdf.ln(2); continue
@@ -142,8 +138,6 @@ class PDFManager:
                     pdf.set_font("Sans", "B", 16); pdf.multi_cell(0, 10, line[2:]); pdf.ln(2)
                 elif line.startswith('## '):
                     pdf.set_font("Sans", "B", 14); pdf.multi_cell(0, 9, line[3:]); pdf.ln(2)
-                elif line.startswith('|'):
-                    pdf.set_font("Serif", "", 10); pdf.cell(0, 8, line, ln=True) # Simple fallback for tables
                 else:
                     self._write_rich_line(pdf, line, 10)
             return bytes(pdf.output())
@@ -155,8 +149,9 @@ class PDFManager:
         pdf_bytes = self._markdown_to_pdf(content, title)
         if not pdf_bytes: return {"error": "Échec generation PDF"}
         try:
-            file_path = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{title[:20]}.pdf"
-            self.client_admin.storage.from_(self.bucket_name).upload(pdf_bytes, file_path, {"content-type": "application/pdf"})
+            file_path = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{title[:20].replace(' ','_')}.pdf"
+            # FIX: correct argument order path, file
+            self.client_admin.storage.from_(self.bucket_name).upload(path=file_path, file=pdf_bytes, file_options={"content-type": "application/pdf"})
             url = f"{self.supabase_url}/storage/v1/object/public/{self.bucket_name}/{file_path}"
             return {"success": True, "title": title, "public_url": url, "pdf_bytes": pdf_bytes}
         except Exception as e:
@@ -165,3 +160,5 @@ class PDFManager:
     def search_pdfs(self, query: str = ""): return []
     def get_all_pdfs(self): return []
     def get_pdf_by_id(self, id): return None
+    def get_pdf_by_title(self, title): return None
+    def delete_pdf(self, title): return {"error": "Non implémenté"}
