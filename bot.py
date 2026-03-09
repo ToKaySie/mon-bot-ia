@@ -80,6 +80,11 @@ def main():
     # Register error handler
     app.add_error_handler(handlers.error_handler)
 
+    # Start background jobs (Reminders)
+    if app.job_queue:
+        app.job_queue.run_repeating(handlers.check_reminders, interval=3600, first=10)
+        logger.info("📅 JobQueue activée : Vérification des rappels toutes les heures.")
+
     # Start polling
     logger.info("🚀 Bot démarré ! Appuyez sur Ctrl+C pour arrêter.")
     app.run_polling(drop_pending_updates=True)

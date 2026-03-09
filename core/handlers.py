@@ -21,6 +21,7 @@ from core.memory import MemoryManager
 from core.pdf_manager import PDFManager, get_pdf_tool_definition, get_create_pdf_tool_definition, get_delete_pdf_tool_definition, get_pdf_system_context
 from core.homework_manager import HomeworkManager, get_homework_tools
 from core.course_manager import CourseManager, get_course_tool_definition
+from core.planner import PlannerManager, get_planner_tool_definition
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ class BotHandlers:
             service_key=config.supabase_service_key or None
         )
         self.courses = CourseManager(
+            supabase_url=config.supabase_url,
+            supabase_key=config.supabase_key
+        )
+        self.planner = PlannerManager(
             supabase_url=config.supabase_url,
             supabase_key=config.supabase_key
         )
@@ -545,6 +550,10 @@ class BotHandlers:
             if self.courses.enabled:
                 available_tags = self.courses.list_tags(user.id)
                 tools.append(get_course_tool_definition(available_tags))
+                
+            # Smart Planner tool
+            if self.planner.enabled:
+                tools.append(get_planner_tool_definition())
             
             response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
             
@@ -560,7 +569,43 @@ class BotHandlers:
                     args = json.loads(tool_call["function"]["arguments"])
                     func_response = ""
                     
-                    if func_name == "get_course_content":
+                    if func_name == "generate_smart_plan":
+                        await message.reply_text("🗓 Création de ton calendrier de révision personnalisé en cours...")
+                        res = self.planner.create_smart_plan(
+                            user_id=user.id,
+                            subject=args.get("subject", "Examen"),
+                            exam_date=args.get("exam_date", ""),
+                            goal_description=args.get("goal_description", ""),
+                            sessions_json=args.get("sessions_json", "[]")
+                        )
+                        func_response = res.get("message") or res.get("error", "Erreur lors de la création")
+                        
+                        # Generate PDF Dashboard automatically if requested
+                        if args.get("generate_pdf", True) and res.get("success"):
+                            await message.reply_text("📊 Génération du tableau de bord PDF...")
+                            pdf_content = f"# ROADMAP DE RÉVISION : {args.get('subject')}\n\n"
+                            pdf_content += f"**Date de l'examen** : {args.get('exam_date')}\n"
+                            pdf_content += f"**Objectif** : {args.get('goal_description')}\n\n---\n\n"
+                            
+                            sessions = json.loads(args.get("sessions_json", "[]"))
+                            for i, sess in enumerate(sessions, 1):
+                                pdf_content += f"### Session {i} : {sess.get('date')}\n"
+                                pdf_content += f"- [ ] {sess.get('topic')}\n\n"
+                            
+                            pdf_res = self.pdf_manager.create_pdf(f"Planning_{args.get('subject')}", text_content=pdf_content)
+                            if pdf_res and pdf_res.get("success"):
+                                try:
+                                    import io
+                                    await context.bot.send_document(
+                                        chat_id=message.chat_id,
+                                        document=io.BytesIO(pdf_res.get("pdf_bytes")),
+                                        filename=f"Roadmap_{args.get('subject')}.pdf",
+                                        caption="Voici ta feuille de route ! Imprime-la et coche les cases. 🚀"
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Error sending planning PDF: {e}")
+
+                    elif func_name == "get_course_content":
                         tag = args.get("tag", "")
                         await message.reply_text(f"🔍 Récupération des notes du cours '{tag}'...")
                         func_response = self.courses.get_course_content_by_tag(user.id, tag)
@@ -817,3 +862,33 @@ class BotHandlers:
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Update {update} caused error: {context.error}", exc_info=context.error)
+
+    async def check_reminders(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Job function to check for today's pending study sessions and send reminders."""
+        if not self.planner.enabled:
+            return
+            
+        reminders = self.planner.get_todays_reminders()
+        if not reminders:
+            return
+            
+        for session in reminders:
+            user_id = session.get("user_id")
+            topic = session.get("topic")
+            exam_subject = session.get("exams", {}).get("subject", "ton examen")
+            session_id = session.get("id")
+            
+            message = (
+                f"🔔 **Rappel de Révision : {exam_subject}**\n\n"
+                f"C'est l'heure de ta session prévue aujourd'hui !\n"
+                f"🎯 **Sujet** : {topic}\n\n"
+                f"💡 _Astuce : Demande-moi de te créer un quiz ou de t'expliquer un concept si tu es bloqué !_ 💪"
+            )
+            
+            try:
+                await context.bot.send_message(chat_id=user_id, text=message, parse_mode=ParseMode.MARKDOWN)
+                # Mark as notified to avoid spamming
+                self.planner.mark_notified(session_id)
+                logger.info(f"Reminder sent to {user_id} for session {session_id}")
+            except Exception as e:
+                logger.error(f"Failed to send reminder to {user_id}: {e}")
