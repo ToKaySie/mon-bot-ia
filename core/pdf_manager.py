@@ -12,30 +12,18 @@ FONTS_DIR = os.path.join(os.path.dirname(__file__), "..", "fonts")
 
 
 def get_pdf_tool_definition(available_pdfs: list = None) -> dict:
-    """Get PDF send tool definition with available PDFs."""
-    
-    if available_pdfs:
-        pdf_list = "\n".join([f"- {p['title']}" for p in available_pdfs])
-        send_desc = f"""Recherche et envoie un document PDF existant à l'utilisateur.
-
-Documents disponibles:
-{pdf_list}
-
-Utilise cette fonction quand l'utilisateur demande un PDF existant."""
-    else:
-        send_desc = """Recherche et envoie un document PDF à l'utilisateur."""
-
+    """Get PDF send tool definition."""
     return {
         "type": "function",
         "function": {
             "name": "send_pdf",
-            "description": send_desc,
+            "description": "Recherche et envoie un document PDF existant de la bibliothèque à l'utilisateur.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Mot-clé pour identifier quel PDF existant envoyer"
+                        "description": "Mot-clé ou titre pour identifier quel PDF existant envoyer"
                     }
                 },
                 "required": ["query"]
@@ -50,31 +38,7 @@ def get_create_pdf_tool_definition() -> dict:
         "type": "function",
         "function": {
             "name": "create_pdf",
-            "description": """Crée un nouveau document PDF. UTILISE TOUJOURS cette fonction quand l'utilisateur demande de créer un PDF, un cours, une fiche ou un document.
-
-RÈGLES STRICTES:
-1. APPELLE TOUJOURS cette fonction - NE JAMAIS écrire le contenu dans ta réponse
-2. Mets TOUT le contenu dans text_content, RIEN dans ta réponse texte
-3. Après l'appel, réponds juste "📄 PDF créé et envoyé !"
-
-FORMAT DU CONTENU (text_content):
-Utilise ce formatage Markdown précis:
-- # Titre principal (sera en gros, gras)
-- ## SECTION EN MAJUSCULES (sera avec une ligne de séparation)
-- ### Sous-titre (sera en gras normal)
-- **Mot-clé** : description (pour les métadonnées, définitions)
-- Texte normal pour les paragraphes
-- - pour les listes à puces
-- 1. pour les listes numérotées
-- --- pour une ligne de séparation horizontale
-- Lignes vides pour séparer les paragraphes
-
-QUALITÉ DU CONTENU:
-- Le contenu doit être APPROFONDI, DÉTAILLÉ et STRUCTURÉ
-- Pas de généralités superficielles : va en profondeur
-- Inclus des exemples concrets, des citations, des analyses
-- Structure logique avec parties et sous-parties claires
-- Adapte le niveau au profil de l'utilisateur""",
+            "description": "Crée un nouveau document PDF structuré (cours, fiche, exercices). Tout le contenu doit être mis dans text_content.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -84,7 +48,7 @@ QUALITÉ DU CONTENU:
                     },
                     "text_content": {
                         "type": "string",
-                        "description": "Contenu complet et détaillé du document en Markdown"
+                        "description": "Contenu complet, détaillé et structuré en Markdown avec LaTeX et tableaux."
                     }
                 },
                 "required": ["title", "text_content"]
@@ -95,24 +59,11 @@ QUALITÉ DU CONTENU:
 
 def get_delete_pdf_tool_definition(available_pdfs: list = None) -> dict:
     """Get the delete_pdf tool definition."""
-    if available_pdfs:
-        pdf_list = "\n".join([f"- {p['title']}" for p in available_pdfs])
-        desc = f"""Supprime un document PDF de la bibliothèque.
-
-Documents disponibles:
-{pdf_list}
-
-Utilise cette fonction quand l'utilisateur demande de supprimer un PDF.
-Cherche le PDF par son titre (ou un mot-clé du titre).
-Demande TOUJOURS confirmation avant de supprimer."""
-    else:
-        desc = "Supprime un document PDF de la bibliothèque par titre."
-
     return {
         "type": "function",
         "function": {
             "name": "delete_pdf",
-            "description": desc,
+            "description": "Supprime un document PDF de la bibliothèque par son titre ou un mot-clé.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -122,7 +73,7 @@ Demande TOUJOURS confirmation avant de supprimer."""
                     },
                     "confirmed": {
                         "type": "boolean",
-                        "description": "True si l'utilisateur a explicitement confirmé la suppression, False sinon"
+                        "description": "True si l'utilisateur a explicitement confirmé la suppression"
                     }
                 },
                 "required": ["title_query", "confirmed"]

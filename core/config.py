@@ -17,7 +17,7 @@ class BotConfig:
     # Ollama Cloud API settings
     ollama_api_url: str = "https://ollama.com/v1"
     ollama_api_key: str = ""
-    ollama_model: str = "qwen3.5:397b-cloud"
+    ollama_model: str = "minimax-m2.5:cloud"
 
     # Supabase Database
     supabase_url: str = ""
@@ -37,7 +37,8 @@ class BotConfig:
         "DANS LE PDF : "
         "1. Utilise TOUJOURS le format LaTeX pour les formules mathématiques (ex: $x^2$ ou $$ \sum_{i=1}^n x_i $$). "
         "2. Utilise TOUJOURS des tableaux Markdown pour les listes de données structurées. "
-        "3. Produit un contenu académique riche, structuré et esthétique."
+        "3. Produit un contenu académique riche, structuré et esthétique. "
+        "4. Pour create_pdf, mets TOUT le contenu dans text_content, rien dans ta réponse."
     )
 
     # Rate limiting
@@ -57,7 +58,7 @@ class BotConfig:
             telegram_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             ollama_api_url=os.getenv("OLLAMA_API_URL", "https://ollama.com/v1"),
             ollama_api_key=os.getenv("OLLAMA_API_KEY", ""),
-            ollama_model=os.getenv("OLLAMA_MODEL", "llama3.1:8b"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "minimax-m2.5:cloud"),
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_key=os.getenv("SUPABASE_KEY", ""),
             supabase_service_key=os.getenv("SUPABASE_SERVICE_KEY", ""),

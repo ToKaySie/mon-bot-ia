@@ -13,7 +13,7 @@ services:
       - key: OLLAMA_API_URL
         value: https://ollama.com/v1
       - key: OLLAMA_MODEL
-        value: qwen3.5:397b-cloud
+        value: minimax-m2.5:cloud
       - key: PYTHON_VERSION
         value: "3.11.11"
       - key: SUPABASE_URL
