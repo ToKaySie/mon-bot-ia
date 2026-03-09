@@ -116,27 +116,59 @@ PLANNINGS DE RÉVISION EN COURS:
     return context
 
 
+def download_fonts():
+    """Download Roboto Slab fonts if they don't exist."""
+    import urllib.request
+    
+    fonts = {
+        "RobotoSlab-Regular.ttf": "https://github.com/google/fonts/raw/main/apache/robotoslab/static/RobotoSlab-Regular.ttf",
+        "RobotoSlab-Bold.ttf": "https://github.com/google/fonts/raw/main/apache/robotoslab/static/RobotoSlab-Bold.ttf"
+    }
+    
+    if not os.path.exists(FONTS_DIR):
+        os.makedirs(FONTS_DIR)
+        
+    for name, url in fonts.items():
+        path = os.path.join(FONTS_DIR, name)
+        if not os.path.exists(path):
+            try:
+                logger.info(f"Downloading font {name}...")
+                urllib.request.urlretrieve(url, path)
+            except Exception as e:
+                logger.error(f"Failed to download font {name}: {e}")
+
+# Call downloader on import
+download_fonts()
+
 class AcademicPDF(FPDF):
-    """PDF with clean academic style matching the reference design."""
+    """PDF with Roboto Slab academic style."""
     
     def __init__(self):
         super().__init__()
-        # Serif fonts for academic look
-        self.add_font("Serif", "", os.path.join(FONTS_DIR, "DejaVuSerif.ttf"), uni=True)
-        self.add_font("Serif", "B", os.path.join(FONTS_DIR, "DejaVuSerif-Bold.ttf"), uni=True)
-        self.add_font("Serif", "I", os.path.join(FONTS_DIR, "DejaVuSerif-Italic.ttf"), uni=True)
-        self.add_font("Serif", "BI", os.path.join(FONTS_DIR, "DejaVuSerif-BoldItalic.ttf"), uni=True)
+        # Roboto Slab as the new primary font
+        reg_path = os.path.join(FONTS_DIR, "RobotoSlab-Regular.ttf")
+        bold_path = os.path.join(FONTS_DIR, "RobotoSlab-Bold.ttf")
+        
+        if os.path.exists(reg_path) and os.path.exists(bold_path):
+            self.add_font("Serif", "", reg_path, uni=True)
+            self.add_font("Serif", "B", bold_path, uni=True)
+            self.add_font("Serif", "I", reg_path, uni=True) # Fallback I to Reg
+            self.add_font("Serif", "BI", bold_path, uni=True) # Fallback BI to Bold
+        else:
+            # Fallback to DejaVu if download failed
+            self.add_font("Serif", "", os.path.join(FONTS_DIR, "DejaVuSerif.ttf"), uni=True)
+            self.add_font("Serif", "B", os.path.join(FONTS_DIR, "DejaVuSerif-Bold.ttf"), uni=True)
+            
         # Sans-serif for headers
         self.add_font("Sans", "", os.path.join(FONTS_DIR, "DejaVuSans.ttf"), uni=True)
         self.add_font("Sans", "B", os.path.join(FONTS_DIR, "DejaVuSans-Bold.ttf"), uni=True)
-        self.add_font("Sans", "I", os.path.join(FONTS_DIR, "DejaVuSans-Oblique.ttf"), uni=True)
 
     def header(self):
         pass
 
     def footer(self):
         self.set_y(-15)
-        self.set_font("Serif", "I", 8)
+        self.set_font("Serif", "", 8)
         self.set_text_color(120, 120, 120)
         self.cell(0, 10, f"{self.page_no()} / {{nb}}", align="C")
 
@@ -181,7 +213,7 @@ class PDFManager:
         pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
         pdf.ln(4)
 
-    def _render_formula(self, pdf: FPDF, formula: str, is_block: bool = True):
+    def _render_formula(self, pdf: FPDF, formula: str, is_block: bool = True, custom_h: float = None):
         """Render a LaTeX formula using CodeCogs API and insert as image."""
         import urllib.parse
         import urllib.request
@@ -195,8 +227,7 @@ class PDFManager:
             formula = formula[1:-1].strip()
             
         try:
-            # CodeCogs URL for PNG rendering (300 DPI for high quality)
-            # Using \bg_white to ensure visibility on white PDF
+            # CodeCogs URL for PNG rendering
             encoded_formula = urllib.parse.quote(r"\bg_white \huge " + formula)
             url = f"https://latex.codecogs.com/png.latex?{encoded_formula}"
             
@@ -204,83 +235,140 @@ class PDFManager:
                 img_data = response.read()
                 img_file = io.BytesIO(img_data)
                 
-                # If block formula, center it
                 if is_block:
                     pdf.ln(2)
-                    # We don't know the image size yet, fpdf2 handles it
-                    # To center, we calculate width after placing or use a fixed width approach
-                    # Simpler: just use multi_cell alignment or manual x calculation
                     curr_y = pdf.get_y()
-                    # Check if we need a new page
                     if curr_y > 250: pdf.add_page()
-                    
-                    # Try to center the image (rough estimation)
+                    # Center
                     pdf.image(img_file, x=pdf.w/2 - 20, w=40) 
                     pdf.ln(2)
                 else:
-                    # Inline formula - more complex with fpdf2, we'll just treat them as small blocks for now
-                    pdf.image(img_file, h=pdf.font_size * 0.8)
+                    # Inline
+                    h = custom_h or (pdf.font_size * 0.9)
+                    pdf.image(img_file, h=h)
         except Exception as e:
             logger.warning(f"Formula rendering failed: {e}")
-            pdf.set_font("Courier", "I", 10)
-            pdf.cell(0, 10, f" [Eq: {formula}] ", ln=True)
+            pdf.set_font("Courier", "", 10)
+            pdf.write(pdf.font_size, f" [Eq: {formula}] ")
 
     def _write_rich_line(self, pdf: FPDF, text: str, font_family: str = "Serif", 
-                          font_size: int = 10, max_width: float = None):
-        """Write a single line/paragraph with **bold**, *italic* and $inline math$."""
+                          font_size: int = 10, max_width: float = None, dry_run: bool = False):
+        """Write text with **bold**, *italic* and $inline math$. Returns total height used."""
         if max_width is None:
             max_width = pdf.w - pdf.l_margin - pdf.r_margin
         
-        # Detect inline math $...$
-        # Regex to split by bold, italic AND inline math
         parts = re.split(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|\$.*?\$)', text)
         
         x_start = pdf.get_x()
         current_x = x_start
-        line_height = font_size * 0.55
+        line_height = font_size * 0.7
+        total_height = line_height
 
         for part in parts:
-            if not part:
-                continue
+            if not part: continue
+            
+            # Set style
+            style = ""
+            clean_part = part
+            is_math = False
             
             if part.startswith('***') and part.endswith('***'):
-                pdf.set_font(font_family, "BI", font_size)
-                part = part[3:-3]
+                style = "BI"; clean_part = part[3:-3]
             elif part.startswith('**') and part.endswith('**'):
-                pdf.set_font(font_family, "B", font_size)
-                part = part[2:-2]
+                style = "B"; clean_part = part[2:-2]
             elif part.startswith('*') and part.endswith('*'):
-                pdf.set_font(font_family, "I", font_size)
-                part = part[1:-1]
+                style = "I"; clean_part = part[1:-1]
             elif part.startswith('$') and part.endswith('$'):
-                # Inline Math - Render as image if possible, or just Courier
-                self._render_formula(pdf, part, is_block=False)
+                is_math = True
+            
+            if is_math:
+                if not dry_run:
+                    self._render_formula(pdf, part, is_block=False, custom_h=font_size*0.6)
                 current_x = pdf.get_x()
                 continue
-            else:
-                pdf.set_font(font_family, "", font_size)
             
-            words = part.split(' ')
+            pdf.set_font(font_family, style, font_size)
+            words = clean_part.split(' ')
             for j, word in enumerate(words):
-                if j > 0:
-                    word = ' ' + word
-                w = pdf.get_string_width(word)
-                if current_x + w > x_start + max_width and current_x > x_start:
-                    pdf.ln(line_height)
-                    pdf.set_x(x_start)
-                    current_x = x_start
-                    word = word.lstrip()
-                    w = pdf.get_string_width(word)
+                w_str = (' ' if j > 0 else '') + word
+                w = pdf.get_string_width(w_str)
                 
-                pdf.set_x(current_x)
-                pdf.cell(w, line_height, word)
+                if current_x + w > x_start + max_width and current_x > x_start:
+                    if not dry_run:
+                        pdf.ln(line_height)
+                        pdf.set_x(start_x := x_start) # Visual fix
+                    current_x = x_start
+                    total_height += line_height
+                    w_str = word.lstrip()
+                    w = pdf.get_string_width(w_str)
+                
+                if not dry_run:
+                    pdf.set_x(current_x)
+                    pdf.cell(w, line_height, w_str)
                 current_x += w
         
-        pdf.ln(line_height)
-        pdf.set_font(font_family, "", font_size)
+        if not dry_run:
+            pdf.ln(line_height)
+        return total_height
+
+    def _render_rich_table(self, pdf: FPDF, table_data: list, width: float):
+        """Custom table renderer that supports LaTeX in cells."""
+        if not table_data: return
+        
+        num_cols = len(table_data[0])
+        col_width = width / num_cols
+        font_size = 10
+        padding = 3
+        
+        # Calculate row heights
+        row_heights = []
+        for row in table_data:
+            max_h = 0
+            for cell in row:
+                # Dry run to get height
+                pdf.set_x(0) # Temporary
+                h = self._write_rich_line(pdf, cell, font_size=font_size, max_width=col_width - 2*padding, dry_run=True)
+                max_h = max(max_h, h)
+            row_heights.append(max_h + 2*padding)
+
+        # Draw Table
+        pdf.set_draw_color(180, 180, 180)
+        pdf.set_line_width(0.2)
+        
+        for i, row in enumerate(table_data):
+            h = row_heights[i]
+            
+            # Page break check
+            if pdf.get_y() + h > 270: pdf.add_page()
+            
+            start_x = pdf.get_x()
+            start_y = pdf.get_y()
+            
+            # Row Background
+            if i == 0: pdf.set_fill_color(230, 230, 230) # Header
+            elif i % 2 == 1: pdf.set_fill_color(248, 248, 248) # Zebra
+            else: pdf.set_fill_color(255, 255, 255)
+            
+            pdf.rect(start_x, start_y, width, h, 'F')
+            
+            # Draw Cells
+            for j, cell in enumerate(row):
+                pdf.set_xy(start_x + j*col_width + padding, start_y + padding)
+                self._write_rich_line(pdf, cell, font_size=font_size, max_width=col_width - 2*padding)
+                
+                # Cell border (vertical)
+                pdf.line(start_x + j*col_width, start_y, start_x + j*col_width, start_y + h)
+            
+            # Last vertical line & horizontal lines
+            pdf.line(start_x + width, start_y, start_x + width, start_y + h)
+            pdf.line(start_x, start_y, start_x + width, start_y)
+            if i == len(table_data) - 1:
+                pdf.line(start_x, start_y + h, start_x + width, start_y + h)
+            
+            pdf.set_xy(start_x, start_y + h)
 
     def _markdown_to_pdf(self, text: str, title: str) -> bytes | None:
-        """Convert Markdown text to a clean academic-style PDF with Math and Tables."""
+        """Convert Markdown text to a clean academic-style PDF with Math and Rich Tables."""
         try:
             pdf = AcademicPDF()
             pdf.alias_nb_pages()
@@ -308,64 +396,81 @@ class PDFManager:
                 line = lines[i].rstrip()
                 stripped = line.strip()
                 
-                # Empty line
                 if not stripped:
-                    pdf.ln(2)
-                    i += 1
-                    continue
+                    pdf.ln(2); i += 1; continue
                 
-                # Block Formula: $$ ... $$
-                if stripped.startswith('$$') and stripped.endswith('$$'):
-                    self._render_formula(pdf, stripped, is_block=True)
-                    i += 1
-                    continue
-                
-                # Multi-line Block Formula
-                if stripped.startswith('$$') and not stripped.endswith('$$'):
-                    formula_lines = [stripped]
-                    i += 1
-                    while i < len(lines) and not lines[i].strip().endswith('$$'):
-                        formula_lines.append(lines[i].strip())
+                # Block Formula
+                if stripped.startswith('$$'):
+                    f_lines = [stripped]
+                    if not stripped.endswith('$$') or len(stripped) == 2:
                         i += 1
-                    if i < len(lines):
-                        formula_lines.append(lines[i].strip())
-                        i += 1
-                    self._render_formula(pdf, "\n".join(formula_lines), is_block=True)
+                        while i < len(lines) and '$$' not in lines[i]:
+                            f_lines.append(lines[i].strip()); i += 1
+                        if i < len(lines): f_lines.append(lines[i].strip()); i += 1
+                    else: i += 1
+                    self._render_formula(pdf, "\n".join(f_lines), is_block=True)
                     continue
 
-                # Tables: | col | col |
+                # Rich Tables
                 if stripped.startswith('|') and i + 1 < len(lines) and '|---' in lines[i+1]:
-                    # Table detection
                     table_data = []
-                    # Header
                     headers = [c.strip() for c in stripped.split('|') if c.strip()]
                     table_data.append(headers)
-                    # Skip separator line
                     i += 2
-                    # Rows
                     while i < len(lines) and lines[i].strip().startswith('|'):
                         row = [c.strip() for c in lines[i].split('|') if c.strip()]
                         if row: table_data.append(row)
                         i += 1
-                    
-                    # Render Table using fpdf2 table()
-                    pdf.ln(4)
-                    with pdf.table(
-                        borders_layout="HORIZONTAL_LINES",
-                        cell_fill_color=245,
-                        cell_fill_mode="ROWS",
-                        line_height=pdf.font_size * 1.5,
-                        text_align="CENTER",
-                        width=content_width
-                    ) as t:
-                        for row_data in table_data:
-                            row = t.row()
-                            for datum in row_data:
-                                row.cell(datum)
-                    pdf.ln(4)
+                    pdf.ln(2)
+                    self._render_rich_table(pdf, table_data, content_width)
+                    pdf.ln(2)
                     continue
 
-                # Horizontal rule: ---
+                # HR
+                if stripped in ('---', '***', '___'):
+                    pdf.ln(2); self._draw_hr(pdf, 0.3); pdf.ln(1); i += 1; continue
+                
+                # Headers
+                if stripped.startswith('# '):
+                    h = stripped[2:].strip()
+                    if not first_h1_done:
+                        pdf.set_font("Sans", "B", 14); pdf.multi_cell(content_width, 8, h); pdf.ln(2)
+                        self._draw_hr(pdf, 0.5); pdf.ln(2); first_h1_done = True
+                    else:
+                        pdf.ln(4); pdf.set_font("Serif", "B", 16); pdf.multi_cell(content_width, 9, h); pdf.ln(2)
+                    i += 1; continue
+                
+                if stripped.startswith('## '):
+                    h = stripped[3:].strip()
+                    pdf.ln(6); pdf.set_font("Sans", "B", 13); pdf.multi_cell(content_width, 8, h); pdf.ln(1)
+                    self._draw_hr(pdf, 0.4); pdf.ln(2); i += 1; continue
+                
+                if stripped.startswith('### '):
+                    h = stripped[4:].strip(); pdf.ln(4); pdf.set_font("Sans", "B", 11)
+                    pdf.multi_cell(content_width, 7, h); pdf.ln(2); i += 1; continue
+                
+                # Lists
+                if stripped.startswith(('- ', '* ', '• ')):
+                    pdf.set_font("Serif", "", BODY_SIZE); pdf.set_x(pdf.l_margin + 5)
+                    pdf.cell(5, 7, "–"); pdf.set_x(pdf.l_margin + 10)
+                    self._write_rich_line(pdf, stripped[2:].strip(), font_size=BODY_SIZE, max_width=content_width-10)
+                    i += 1; continue
+                
+                if re.match(r'^\d+[\.\)] ', stripped):
+                    m = re.match(r'^(\d+[\.\)] )(.*)', stripped)
+                    pdf.set_font("Serif", "B", BODY_SIZE); pdf.set_x(pdf.l_margin + 5)
+                    pdf.cell(8, 7, m.group(1)); pdf.set_x(pdf.l_margin + 13)
+                    self._write_rich_line(pdf, m.group(2).strip(), font_size=BODY_SIZE, max_width=content_width-13)
+                    i += 1; continue
+                
+                # Regular paragraph
+                pdf.set_x(pdf.l_margin)
+                self._write_rich_line(pdf, stripped, font_size=BODY_SIZE, max_width=content_width)
+                pdf.ln(1); i += 1
+
+            return bytes(pdf.output())
+        except Exception as e:
+            logger.error(f"PDF generation error: {e}", exc_info=True); return None
                 if stripped in ('---', '***', '___'):
                     pdf.ln(2)
                     self._draw_hr(pdf, 0.3)
