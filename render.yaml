@@ -22,3 +22,5 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_KEY
         sync: false
+      - key: ALLOWED_USERS
+        value: "5981844665"
