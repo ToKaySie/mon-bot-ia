@@ -466,7 +466,16 @@ class BotHandlers:
             messages = self.conversations.get_messages(user.id, user_memory=user_memories, study_plans=user_plans)
             
             # Call Ollama
-            response_dict = await self.ollama.chat(messages)
+            reasoning_msg = await message.reply_text("🧠 Réflexion en cours...")
+            
+            try:
+                response_dict = await self.ollama.chat(messages)
+            finally:
+                try:
+                    await context.bot.delete_message(chat_id=message.chat_id, message_id=reasoning_msg.message_id)
+                except Exception:
+                    pass
+            
             ai_text = response_dict.get("content", "Désolé, je n'ai pas pu analyser cette image.")
             
             self.conversations.add_assistant_message(user.id, ai_text)
@@ -555,7 +564,15 @@ class BotHandlers:
             if self.planner.enabled:
                 tools.append(get_planner_tool_definition())
             
-            response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
+            reasoning_msg = await message.reply_text("🧠 Réflexion en cours...")
+            
+            try:
+                response_dict = await self.ollama.chat(messages, tools=tools if tools else None)
+            finally:
+                try:
+                    await context.bot.delete_message(chat_id=message.chat_id, message_id=reasoning_msg.message_id)
+                except Exception:
+                    pass
             
             ai_text = response_dict.get("content", "")
             
