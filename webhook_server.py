@@ -1,20 +1,22 @@
 """
 Telegram AI Bot - Webhook Server for Cloud Deployment (Render, Railway, etc.)
 
-This uses python-telegram-bot's built-in webhook server.
-It automatically starts a web server and registers the webhook with Telegram.
-
-Usage:
-    Set the RENDER_EXTERNAL_URL or WEBHOOK_URL environment variable, then:
-    python webhook_server.py
+This uses a custom Tornado server to handle both Telegram webhooks
+and a /health endpoint for monitoring and keeping the service alive.
 """
 
 import os
 import sys
 import logging
+import json
+import asyncio
 from pathlib import Path
 
+import tornado.web
+import tornado.ioloop
+import tornado.httpserver
 from dotenv import load_dotenv
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 from core.config import BotConfig
@@ -29,7 +31,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():
+class HealthHandler(tornado.web.RequestHandler):
+    """Handler for the /health endpoint."""
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            "status": "ok",
+            "bot": "Telegram AI Bot",
+            "engine": "Ollama Cloud",
+        }))
+
+
+class WebhookHandler(tornado.web.RequestHandler):
+    """Handler for Telegram webhook updates."""
+    def initialize(self, app):
+        self.app = app
+
+    async def post(self):
+        """Handle incoming Telegram webhook updates."""
+        try:
+            data = json.loads(self.request.body)
+            update = Update.de_json(data, self.app.bot)
+            await self.app.process_update(update)
+            self.set_status(200)
+            self.write("OK")
+        except Exception as e:
+            logger.error(f"Webhook error: {e}", exc_info=True)
+            self.set_status(200)  # Always return 200 to Telegram
+
+
+async def main():
     """Start the bot in webhook mode for cloud deployment."""
 
     # Load environment variables
@@ -46,13 +77,10 @@ def main():
         sys.exit(1)
 
     # Determine the external URL
-    # Render sets RENDER_EXTERNAL_URL automatically
     external_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("WEBHOOK_URL", "")
 
     if not external_url:
         logger.error("❌ RENDER_EXTERNAL_URL or WEBHOOK_URL must be set!")
-        logger.error("   On Render, this is set automatically.")
-        logger.error("   Otherwise, set WEBHOOK_URL to your server's public URL.")
         sys.exit(1)
 
     # Port - Render sets the PORT env var
@@ -62,10 +90,9 @@ def main():
 
     logger.info("=" * 50)
     logger.info("🤖 Bot IA Telegram - Mode Webhook (Cloud)")
-    logger.info(f"📡 Ollama API: {config.ollama_api_url}")
-    logger.info(f"🧠 Modèle: {config.ollama_model}")
     logger.info(f"🌐 Webhook URL: {webhook_url}")
     logger.info(f"🔌 Port: {port}")
+    logger.info(f"🏥 Health Check: {external_url.rstrip('/')}/health")
     logger.info("=" * 50)
 
     # Create bot handlers
@@ -91,30 +118,39 @@ def main():
     # Register error handler
     app.add_error_handler(handlers.error_handler)
 
+    # Initialize bot
+    await app.initialize()
+    await app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+    await app.start()
+
     # Start background jobs (Reminders)
     if app.job_queue:
         app.job_queue.run_repeating(handlers.check_reminders, interval=3600, first=10)
-        logger.info("📅 JobQueue activée : Vérification des rappels toutes les heures.")
+        logger.info("📅 JobQueue activée.")
 
-    # Fix for Python 3.12+ / Cloud environments: Ensure an event loop exists
-    import asyncio
+    # Create Tornado application
+    tornado_app = tornado.web.Application([
+        (r"/health", HealthHandler),
+        (webhook_path, WebhookHandler, dict(app=app)),
+    ])
+
+    # Start Tornado server
+    http_server = tornado.httpserver.HTTPServer(tornado_app)
+    http_server.listen(port)
+    
+    logger.info("🚀 Serveur Web prêt (Webhook + Health Check)")
+    
+    # Keep the event loop running
     try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    # Start webhook server
-    logger.info("🚀 Démarrage du serveur webhook...")
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=webhook_path,
-        webhook_url=webhook_url,
-        drop_pending_updates=True,
-    )
+        await asyncio.Event().wait()
+    finally:
+        # Graceful shutdown
+        await app.stop()
+        await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
