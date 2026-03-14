@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from threading import Thread
+import os
+from flask import Flask
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
 from core.config import BotConfig
@@ -28,8 +31,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+
+# Initialize Flask app for keep-alive
+server = Flask(__name__)
+
+@server.route('/')
+def home():
+    return "Bot is running (Polling mode)!", 200
+
+def run_server():
+    port = int(os.environ.get("PORT", "10000"))
+    server.run(host='0.0.0.0', port=port)
+
 def main():
     """Start the bot in polling mode (local development)."""
+    # Start the keep-alive server in a background thread
+    Thread(target=run_server, daemon=True).start()
+
 
     # Load environment variables
     env_path = Path(__file__).parent / ".env"
